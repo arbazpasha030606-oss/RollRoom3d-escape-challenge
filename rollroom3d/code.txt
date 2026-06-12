@@ -1,0 +1,953 @@
+/****
+* Assets
+****/
+LK.init.shape('collectible', {width:60, height:60, color:0xffd93d, shape:'ellipse'})
+LK.init.shape('diamondCoin', {width:80, height:80, color:0x00ffff, shape:'ellipse'})
+LK.init.shape('finish', {width:150, height:150, color:0x00ff00, shape:'box'})
+LK.init.shape('menuButton', {width:100, height:100, color:0x82f88c, shape:'box'})
+LK.init.shape('obstacle', {width:100, height:100, color:0xff6b6b, shape:'box'})
+LK.init.shape('platform', {width:100, height:100, color:0x0646e7, shape:'box'})
+LK.init.shape('player', {width:120, height:120, color:0x4a90e2, shape:'box'})
+LK.init.music('bgmusic')
+LK.init.sound('coinCollect')
+LK.init.sound('levelComplete')
+
+/**** 
+* Plugins
+****/
+var tween = LK.import("@upit/tween.v1");
+var storage = LK.import("@upit/storage.v1", {
+	playerName: "Player",
+	totalScore: 0,
+	levelsCompleted: 0,
+	totalCoins: 0,
+	selectedBall: 0,
+	unlockedBalls: [true, false, false, false, false, false],
+	achievements: [],
+	highScores: [],
+	musicEnabled: true,
+	soundEnabled: true,
+	graphicsQuality: 2,
+	sensitivity: 1,
+	language: "en",
+	dailyRewardClaimed: false,
+	lastRewardDate: 0,
+	currentLevel: 1,
+	levelCoinsCollected: 0,
+	maxLevel: 25,
+	levelDifficulty: {},
+	levelProgress: {}
+});
+
+/**** 
+* Classes
+****/
+var Collectible = Container.expand(function () {
+	var self = Container.call(this);
+	var collectibleGraphics = self.attachAsset('collectible', {
+		anchorX: 0.5,
+		anchorY: 0.5
+	});
+	self.width = collectibleGraphics.width;
+	self.height = collectibleGraphics.height;
+	self.speed = 4;
+	self.value = 1;
+	self.collected = false;
+	self.update = function () {
+		self.y += self.speed;
+	};
+	return self;
+});
+var DiamondCoin = Container.expand(function () {
+	var self = Container.call(this);
+	var diamondGraphics = self.attachAsset('diamondCoin', {
+		anchorX: 0.5,
+		anchorY: 0.5
+	});
+	self.width = diamondGraphics.width;
+	self.height = diamondGraphics.height;
+	self.speed = 3;
+	self.value = 10;
+	self.collected = false;
+	self.rotation = 0;
+	self.update = function () {
+		self.y += self.speed;
+		self.rotation += 0.05;
+	};
+	return self;
+});
+var FinishLine = Container.expand(function () {
+	var self = Container.call(this);
+	var finishGraphics = self.attachAsset('finish', {
+		anchorX: 0.5,
+		anchorY: 0.5
+	});
+	self.width = finishGraphics.width;
+	self.height = finishGraphics.height;
+	self.reached = false;
+	return self;
+});
+var HomeScreen = Container.expand(function () {
+	var self = Container.call(this);
+	var currentMenu = 'main';
+	var menuButtons = [];
+	var profileData = null;
+	function createButton(x, y, width, height, text, callback) {
+		var button = new Container();
+		var bg = LK.getAsset('menuButton', {
+			anchorX: 0.5,
+			anchorY: 0.5
+		});
+		button.addChild(bg);
+		var label = new Text2(text, {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		label.anchor.set(0.5, 0.5);
+		button.addChild(label);
+		button.x = x;
+		button.y = y;
+		button.width = width;
+		button.height = height;
+		button.interactive = true;
+		button.callback = callback;
+		button.down = function () {
+			tween(label, {
+				scale: 0.9
+			}, {
+				duration: 100
+			});
+		};
+		button.up = function () {
+			tween(label, {
+				scale: 1
+			}, {
+				duration: 100
+			});
+			if (callback) {
+				callback();
+			}
+		};
+		self.addChild(button);
+		menuButtons.push(button);
+		return button;
+	}
+	function showMainMenu() {
+		currentMenu = 'main';
+		clearMenuButtons();
+		var titleText = new Text2('RollSphere 3D', {
+			size: 120,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var subtitleText = new Text2('Ultimate Escape', {
+			size: 80,
+			fill: 0xAAAAAA
+		});
+		subtitleText.anchor.set(0.5, 0);
+		subtitleText.x = 1024;
+		subtitleText.y = 350;
+		self.addChild(subtitleText);
+		createButton(1024, 600, 400, 120, 'Play Game', function () {
+			showBallSelection();
+		});
+		createButton(1024, 800, 400, 120, 'Player Profile', function () {
+			showPlayerProfile();
+		});
+		createButton(1024, 1000, 400, 120, 'High Scores', function () {
+			showHighScores();
+		});
+		createButton(1024, 1200, 400, 120, 'Ball Collection', function () {
+			showBallCollection();
+		});
+		createButton(1024, 1400, 400, 120, 'Level Selection', function () {
+			showLevelSelection();
+		});
+		createButton(1024, 1600, 400, 120, 'Achievements', function () {
+			showAchievements();
+		});
+		createButton(1024, 1800, 400, 120, 'Help', function () {
+			showHelp();
+		});
+		createButton(1024, 2000, 400, 120, 'Settings', function () {
+			showSettings();
+		});
+		createButton(1024, 2200, 400, 120, 'Daily Rewards', function () {
+			showDailyRewards();
+		});
+		var coinsText = new Text2('Coins: ' + storage.totalCoins, {
+			size: 60,
+			fill: 0xffd93d
+		});
+		coinsText.anchor.set(0, 0);
+		coinsText.x = 50;
+		coinsText.y = 2600;
+		self.addChild(coinsText);
+	}
+	function showPlayerProfile() {
+		currentMenu = 'profile';
+		clearMenuButtons();
+		var backButton = new Text2('< Back', {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		backButton.anchor.set(0, 0);
+		backButton.x = 50;
+		backButton.y = 100;
+		backButton.interactive = true;
+		backButton.down = function () {
+			showMainMenu();
+		};
+		self.addChild(backButton);
+		var titleText = new Text2('Player Profile', {
+			size: 100,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var profileInfo = new Text2('Name: ' + storage.playerName + '\nTotal Score: ' + storage.totalScore + '\nLevels Completed: ' + storage.levelsCompleted + '\nTotal Coins: ' + storage.totalCoins, {
+			size: 70,
+			fill: 0xAAAAAA
+		});
+		profileInfo.anchor.set(0.5, 0);
+		profileInfo.x = 1024;
+		profileInfo.y = 500;
+		self.addChild(profileInfo);
+	}
+	function showHighScores() {
+		currentMenu = 'highscores';
+		clearMenuButtons();
+		var backButton = new Text2('< Back', {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		backButton.anchor.set(0, 0);
+		backButton.x = 50;
+		backButton.y = 100;
+		backButton.interactive = true;
+		backButton.down = function () {
+			showMainMenu();
+		};
+		self.addChild(backButton);
+		var titleText = new Text2('High Scores', {
+			size: 100,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var scoresText = 'Highest Score: ' + storage.totalScore + '\nLevels Reached: ' + storage.levelsCompleted;
+		var scoresDisplay = new Text2(scoresText, {
+			size: 80,
+			fill: 0xFFD93D
+		});
+		scoresDisplay.anchor.set(0.5, 0);
+		scoresDisplay.x = 1024;
+		scoresDisplay.y = 600;
+		self.addChild(scoresDisplay);
+	}
+	function showBallCollection() {
+		currentMenu = 'balls';
+		clearMenuButtons();
+		var backButton = new Text2('< Back', {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		backButton.anchor.set(0, 0);
+		backButton.x = 50;
+		backButton.y = 100;
+		backButton.interactive = true;
+		backButton.down = function () {
+			showMainMenu();
+		};
+		self.addChild(backButton);
+		var titleText = new Text2('Ball Collection', {
+			size: 100,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var ballNames = ['Blue Ball', 'Metallic Ball', 'Neon Ball', 'Crystal Ball', 'Fire Ball', 'Soccer Ball'];
+		var ballColors = [0x4a90e2, 0xC0C0C0, 0x00FF00, 0x00FFFF, 0xFF4500, 0xFFFFFF];
+		var yPos = 600;
+		for (var i = 0; i < ballNames.length; i++) {
+			var locked = !storage.unlockedBalls[i];
+			var ballText = new Text2((locked ? '🔒 ' : '✓ ') + ballNames[i], {
+				size: 70,
+				fill: locked ? 0x666666 : ballColors[i]
+			});
+			ballText.anchor.set(0.5, 0);
+			ballText.x = 1024;
+			ballText.y = yPos;
+			self.addChild(ballText);
+			yPos += 250;
+		}
+	}
+	function showLevelSelection() {
+		currentMenu = 'levels';
+		clearMenuButtons();
+		var backButton = new Text2('< Back', {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		backButton.anchor.set(0, 0);
+		backButton.x = 50;
+		backButton.y = 100;
+		backButton.interactive = true;
+		backButton.down = function () {
+			showBallSelection();
+		};
+		self.addChild(backButton);
+		var titleText = new Text2('Level Selection', {
+			size: 100,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var nextLevel = Math.max(1, storage.levelsCompleted);
+		var levelInfo = new Text2('Easy (1-5)\nMedium (6-10)\nHard (11-15)\nExpert (16-20)\nLegendary (21-25)\n\nCompleted: ' + storage.levelsCompleted + ' levels\nNext Level: ' + nextLevel, {
+			size: 70,
+			fill: 0xAAAAAA
+		});
+		levelInfo.anchor.set(0.5, 0);
+		levelInfo.x = 1024;
+		levelInfo.y = 600;
+		self.addChild(levelInfo);
+		createButton(1024, 2400, 400, 120, 'Start Level ' + nextLevel, function () {
+			startLevel(nextLevel);
+		});
+	}
+	function showAchievements() {
+		currentMenu = 'achievements';
+		clearMenuButtons();
+		var backButton = new Text2('< Back', {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		backButton.anchor.set(0, 0);
+		backButton.x = 50;
+		backButton.y = 100;
+		backButton.interactive = true;
+		backButton.down = function () {
+			showMainMenu();
+		};
+		self.addChild(backButton);
+		var titleText = new Text2('Achievements', {
+			size: 100,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var achievementsList = 'Coin Collector\nSpeed Master\nBrick Breaker\nObstacle Survivor\nLevel Champion';
+		var achievementsDisplay = new Text2(achievementsList, {
+			size: 70,
+			fill: 0xFF6B9D
+		});
+		achievementsDisplay.anchor.set(0.5, 0);
+		achievementsDisplay.x = 1024;
+		achievementsDisplay.y = 600;
+		self.addChild(achievementsDisplay);
+	}
+	function showHelp() {
+		currentMenu = 'help';
+		clearMenuButtons();
+		var backButton = new Text2('< Back', {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		backButton.anchor.set(0, 0);
+		backButton.x = 50;
+		backButton.y = 100;
+		backButton.interactive = true;
+		backButton.down = function () {
+			showMainMenu();
+		};
+		self.addChild(backButton);
+		var titleText = new Text2('Help & Instructions', {
+			size: 100,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var helpText = new Text2('Swipe to move the ball\nCollect coins for points\nAvoid red obstacles\nReach the finish line\nComplete levels to unlock more', {
+			size: 60,
+			fill: 0xAAAAAA
+		});
+		helpText.anchor.set(0.5, 0);
+		helpText.x = 1024;
+		helpText.y = 600;
+		self.addChild(helpText);
+	}
+	function showSettings() {
+		currentMenu = 'settings';
+		clearMenuButtons();
+		var backButton = new Text2('< Back', {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		backButton.anchor.set(0, 0);
+		backButton.x = 50;
+		backButton.y = 100;
+		backButton.interactive = true;
+		backButton.down = function () {
+			showMainMenu();
+		};
+		self.addChild(backButton);
+		var titleText = new Text2('Settings', {
+			size: 100,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var musicStatus = storage.musicEnabled ? 'ON' : 'OFF';
+		var soundStatus = storage.soundEnabled ? 'ON' : 'OFF';
+		var settingsText = new Text2('Music: ' + musicStatus + '\nSound Effects: ' + soundStatus + '\nGraphics Quality: ' + storage.graphicsQuality + '\nSensitivity: ' + storage.sensitivity, {
+			size: 70,
+			fill: 0xAAAAAA
+		});
+		settingsText.anchor.set(0.5, 0);
+		settingsText.x = 1024;
+		settingsText.y = 600;
+		self.addChild(settingsText);
+	}
+	function showBallSelection() {
+		currentMenu = 'ballselection';
+		clearMenuButtons();
+		var backButton = new Text2('< Back', {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		backButton.anchor.set(0, 0);
+		backButton.x = 50;
+		backButton.y = 100;
+		backButton.interactive = true;
+		backButton.down = function () {
+			showMainMenu();
+		};
+		self.addChild(backButton);
+		var titleText = new Text2('Select Ball', {
+			size: 100,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var ballNames = ['Blue Ball', 'Metallic Ball', 'Neon Ball', 'Crystal Ball', 'Fire Ball', 'Soccer Ball'];
+		var ballColors = [0x4a90e2, 0xC0C0C0, 0x00FF00, 0x00FFFF, 0xFF4500, 0xFFFFFF];
+		var yPos = 600;
+		for (var i = 0; i < ballNames.length; i++) {
+			var locked = !storage.unlockedBalls[i];
+			var ballText = new Text2((locked ? '✗ ' : '✓ ') + ballNames[i], {
+				size: 70,
+				fill: locked ? 0x666666 : ballColors[i]
+			});
+			ballText.anchor.set(0.5, 0);
+			ballText.x = 1024;
+			ballText.y = yPos;
+			self.addChild(ballText);
+			yPos += 250;
+		}
+		createButton(1024, 2400, 400, 120, 'Play', function () {
+			showLevelSelection();
+		});
+	}
+	function showDailyRewards() {
+		currentMenu = 'rewards';
+		clearMenuButtons();
+		var backButton = new Text2('< Back', {
+			size: 60,
+			fill: 0xFFFFFF
+		});
+		backButton.anchor.set(0, 0);
+		backButton.x = 50;
+		backButton.y = 100;
+		backButton.interactive = true;
+		backButton.down = function () {
+			showMainMenu();
+		};
+		self.addChild(backButton);
+		var titleText = new Text2('Daily Rewards', {
+			size: 100,
+			fill: 0xFFFFFF
+		});
+		titleText.anchor.set(0.5, 0);
+		titleText.x = 1024;
+		titleText.y = 200;
+		self.addChild(titleText);
+		var rewardStatus = storage.dailyRewardClaimed ? 'Claimed Today' : 'Claim Your Reward!';
+		var rewardText = new Text2(rewardStatus + '\n+100 Coins', {
+			size: 80,
+			fill: 0xFFD93D
+		});
+		rewardText.anchor.set(0.5, 0);
+		rewardText.x = 1024;
+		rewardText.y = 600;
+		self.addChild(rewardText);
+	}
+	function clearMenuButtons() {
+		for (var i = self.children.length - 1; i >= 0; i--) {
+			self.removeChild(self.children[i]);
+		}
+		menuButtons = [];
+	}
+	showMainMenu();
+	return self;
+});
+var Obstacle = Container.expand(function () {
+	var self = Container.call(this);
+	var obstacleGraphics = self.attachAsset('obstacle', {
+		anchorX: 0.5,
+		anchorY: 0.5
+	});
+	self.width = obstacleGraphics.width;
+	self.height = obstacleGraphics.height;
+	self.speed = 5;
+	self.obstacleType = 'moving';
+	self.lastY = 0;
+	self.update = function () {
+		self.lastY = self.y;
+		self.y += self.speed;
+	};
+	return self;
+});
+var Platform = Container.expand(function () {
+	var self = Container.call(this);
+	var platformGraphics = self.attachAsset('platform', {
+		anchorX: 0.5,
+		anchorY: 0.5
+	});
+	self.width = platformGraphics.width;
+	self.height = platformGraphics.height;
+	self.isSafe = true;
+	return self;
+});
+var Player = Container.expand(function () {
+	var self = Container.call(this);
+	var playerGraphics = self.attachAsset('player', {
+		anchorX: 0.5,
+		anchorY: 0.5
+	});
+	self.width = playerGraphics.width;
+	self.height = playerGraphics.height;
+	self.speed = 8;
+	self.update = function () {
+		// Update will be called every tick
+	};
+	return self;
+});
+
+/**** 
+* Initialize Game
+****/
+var game = new LK.Game({
+	backgroundColor: 0x1A1A2E
+});
+
+/**** 
+* Game Code
+****/
+// Game state variables
+var gameState = 'menu';
+var currentLevelData = null;
+var player = null;
+var collectibles = [];
+var obstacles = [];
+var platforms = [];
+var finishLine = null;
+var levelCoinsCollected = 0;
+var levelStartTime = 0;
+var gameActive = false;
+// Initialize home screen
+var homeScreen = game.addChild(new HomeScreen());
+// Play background music
+LK.playMusic('bgmusic', {
+	loop: true
+});
+// Show level complete screen with timer and options
+function showLevelCompleteScreen() {
+	var timeElapsed = Math.floor((Date.now() - levelStartTime) / 1000);
+	var countdownTime = 10;
+	var levelCompleteContainer = new Container();
+	// Semi-transparent background
+	var bgRect = LK.getAsset('platform', {
+		anchorX: 0.5,
+		anchorY: 0.5
+	});
+	bgRect.width = 2048;
+	bgRect.height = 2732;
+	bgRect.alpha = 0.7;
+	bgRect.tint = 0x000000;
+	levelCompleteContainer.addChild(bgRect);
+	// Title
+	var titleText = new Text2('Level Complete!', {
+		size: 120,
+		fill: 0x00FF00
+	});
+	titleText.anchor.set(0.5, 0.5);
+	titleText.x = 1024;
+	titleText.y = 600;
+	levelCompleteContainer.addChild(titleText);
+	// Stats
+	var statsText = new Text2('Level: ' + currentLevelData.number + '\nCoins Collected: ' + levelCoinsCollected + '\nTime: ' + timeElapsed + 's', {
+		size: 80,
+		fill: 0xFFFFFF
+	});
+	statsText.anchor.set(0.5, 0.5);
+	statsText.x = 1024;
+	statsText.y = 900;
+	levelCompleteContainer.addChild(statsText);
+	// Countdown timer
+	var timerText = new Text2('Next Level in: ' + countdownTime + 's', {
+		size: 70,
+		fill: 0xFFD93D
+	});
+	timerText.anchor.set(0.5, 0.5);
+	timerText.x = 1024;
+	timerText.y = 1300;
+	levelCompleteContainer.addChild(timerText);
+	game.addChild(levelCompleteContainer);
+	// Save level completion data
+	if (!storage.levelProgress) {
+		storage.levelProgress = {};
+	}
+	storage.levelProgress['level_' + currentLevelData.number] = {
+		completed: true,
+		coinsCollected: levelCoinsCollected,
+		timeTaken: timeElapsed
+	};
+	// Countdown timer logic
+	var countdownInterval = LK.setInterval(function () {
+		countdownTime--;
+		timerText.setText('Next Level in: ' + Math.max(0, countdownTime) + 's');
+		if (countdownTime <= 0) {
+			LK.clearInterval(countdownInterval);
+			// Auto-advance to next level
+			if (currentLevelData.number < 25) {
+				cleanupLevel();
+				startLevel(currentLevelData.number + 1);
+			} else {
+				cleanupLevel();
+				gameState = 'menu';
+				homeScreen = game.addChild(new HomeScreen());
+			}
+		}
+	}, 1000);
+	// Next Level button
+	var nextLevelButton = new Container();
+	var nextBg = LK.getAsset('menuButton', {
+		anchorX: 0.5,
+		anchorY: 0.5
+	});
+	nextLevelButton.addChild(nextBg);
+	var nextLabel = new Text2('Next Level', {
+		size: 60,
+		fill: 0xFFFFFF
+	});
+	nextLabel.anchor.set(0.5, 0.5);
+	nextLevelButton.addChild(nextLabel);
+	nextLevelButton.x = 700;
+	nextLevelButton.y = 1800;
+	nextLevelButton.interactive = true;
+	nextLevelButton.down = function () {
+		tween(nextLabel, {
+			scale: 0.9
+		}, {
+			duration: 100
+		});
+	};
+	nextLevelButton.up = function () {
+		tween(nextLabel, {
+			scale: 1
+		}, {
+			duration: 100
+		});
+		LK.clearInterval(countdownInterval);
+		if (currentLevelData.number < 25) {
+			cleanupLevel();
+			startLevel(currentLevelData.number + 1);
+		}
+	};
+	levelCompleteContainer.addChild(nextLevelButton);
+	// Back to Menu button
+	var backButton = new Container();
+	var backBg = LK.getAsset('menuButton', {
+		anchorX: 0.5,
+		anchorY: 0.5
+	});
+	backButton.addChild(backBg);
+	var backLabel = new Text2('Back to Menu', {
+		size: 60,
+		fill: 0xFFFFFF
+	});
+	backLabel.anchor.set(0.5, 0.5);
+	backButton.addChild(backLabel);
+	backButton.x = 1348;
+	backButton.y = 1800;
+	backButton.interactive = true;
+	backButton.down = function () {
+		tween(backLabel, {
+			scale: 0.9
+		}, {
+			duration: 100
+		});
+	};
+	backButton.up = function () {
+		tween(backLabel, {
+			scale: 1
+		}, {
+			duration: 100
+		});
+		LK.clearInterval(countdownInterval);
+		cleanupLevel();
+		gameState = 'menu';
+		homeScreen = game.addChild(new HomeScreen());
+	};
+	levelCompleteContainer.addChild(backButton);
+}
+// Cleanup level assets
+function cleanupLevel() {
+	gameState = 'menu';
+	gameActive = false;
+	// Remove GUI elements
+	var guiChildren = LK.gui.top.children;
+	for (var i = guiChildren.length - 1; i >= 0; i--) {
+		if (guiChildren[i].name === 'coinDisplay' || guiChildren[i].name === 'levelDisplay') {
+			LK.gui.top.removeChild(guiChildren[i]);
+		}
+	}
+	// Remove level objects
+	player = null;
+	collectibles = [];
+	obstacles = [];
+	platforms = [];
+	finishLine = null;
+	// Clear game children
+	for (var i = game.children.length - 1; i >= 0; i--) {
+		game.removeChild(game.children[i]);
+	}
+}
+// Generate level difficulty based on level number
+function getLevelDifficulty(levelNum) {
+	var baseSpeed = 2;
+	var speedMultiplier = 1 + levelNum * 0.15;
+	var difficulty = {
+		number: levelNum,
+		coinsRequired: Math.ceil(levelNum / 5),
+		obstacleSpeed: baseSpeed + speedMultiplier,
+		platformWidth: Math.max(100, 400 - levelNum * 8),
+		diamondCoinChance: Math.min(0.5, levelNum * 0.03),
+		minCompletionTime: 30 + levelNum * 5
+	};
+	if (levelNum <= 5) {
+		difficulty.type = 'Easy';
+	} else if (levelNum <= 10) {
+		difficulty.type = 'Medium';
+	} else if (levelNum <= 15) {
+		difficulty.type = 'Hard';
+	} else if (levelNum <= 20) {
+		difficulty.type = 'Expert';
+	} else {
+		difficulty.type = 'Legendary';
+	}
+	return difficulty;
+}
+// Initialize gameplay level
+function startLevel(levelNum) {
+	gameState = 'gameplay';
+	storage.currentLevel = levelNum;
+	levelCoinsCollected = 0;
+	levelStartTime = Date.now();
+	gameActive = true;
+	currentLevelData = getLevelDifficulty(levelNum);
+	collectibles = [];
+	obstacles = [];
+	platforms = [];
+	// Clear home screen and add game elements
+	homeScreen.parent.removeChild(homeScreen);
+	// Create player
+	player = game.addChild(new Player());
+	player.x = 1024;
+	player.y = 2300;
+	player.lastX = player.x;
+	player.lastY = player.y;
+	// Create platforms
+	var platformY = 2200;
+	var platformCount = 8 + currentLevelData.number;
+	for (var p = 0; p < platformCount; p++) {
+		var platform = game.addChild(new Platform());
+		platform.x = 1024 + (Math.random() - 0.5) * 300;
+		platform.y = platformY - p * 300;
+		platforms.push(platform);
+	}
+	// Create finish line far below
+	finishLine = game.addChild(new FinishLine());
+	finishLine.x = 1024;
+	finishLine.y = platformY - platformCount * 300 - 500;
+	finishLine.lastWasIntersecting = false;
+	// Create coins throughout level - spread across entire level length
+	var coinCount = Math.floor(15 + currentLevelData.number * 0.5);
+	for (var c = 0; c < coinCount; c++) {
+		var coin = game.addChild(new Collectible());
+		coin.x = 200 + Math.random() * 1648;
+		coin.y = 2000 - c * 180 - Math.random() * 150;
+		coin.lastY = coin.y;
+		coin.value = 1;
+		collectibles.push(coin);
+	}
+	// Add diamond coins - multiple per level for higher difficulties
+	var diamondCount = Math.floor(currentLevelData.diamondCoinChance * 3);
+	for (var d = 0; d < diamondCount; d++) {
+		if (Math.random() < 0.4) {
+			var diamond = game.addChild(new DiamondCoin());
+			diamond.x = 300 + Math.random() * 1448;
+			diamond.y = 1500 - d * 400 - Math.random() * 300;
+			diamond.lastY = diamond.y;
+			collectibles.push(diamond);
+		}
+	}
+	// Create obstacles - increase count significantly for minimum 30-60 second completion
+	var obstacleCount = Math.floor(8 + currentLevelData.number * 0.8);
+	for (var o = 0; o < obstacleCount; o++) {
+		var obstacle = game.addChild(new Obstacle());
+		obstacle.x = 100 + Math.random() * 1848;
+		obstacle.y = 2000 - o * 250;
+		obstacle.speed = currentLevelData.obstacleSpeed * (0.8 + Math.random() * 0.4);
+		obstacle.lastY = obstacle.y;
+		obstacles.push(obstacle);
+	}
+	// Create UI for gameplay
+	var coinDisplay = new Text2('Coins: ' + levelCoinsCollected, {
+		size: 80,
+		fill: 0xffd93d
+	});
+	coinDisplay.anchor.set(0, 0);
+	coinDisplay.x = 50;
+	coinDisplay.y = 50;
+	coinDisplay.name = 'coinDisplay';
+	LK.gui.top.addChild(coinDisplay);
+	var levelDisplay = new Text2('Level: ' + currentLevelData.number, {
+		size: 80,
+		fill: 0xFFFFFF
+	});
+	levelDisplay.anchor.set(1, 0);
+	levelDisplay.x = 2048 - 50;
+	levelDisplay.y = 50;
+	levelDisplay.name = 'levelDisplay';
+	LK.gui.top.addChild(levelDisplay);
+}
+// Update game loop
+game.update = function () {
+	if (gameState === 'menu') {
+		// Menu is handled by HomeScreen class
+		return;
+	}
+	if (!gameActive || !player) {
+		return;
+	}
+	// Update player (manual movement based on touch)
+	player.lastX = player.x;
+	player.lastY = player.y;
+	// Update collectibles
+	for (var c = collectibles.length - 1; c >= 0; c--) {
+		var collectible = collectibles[c];
+		collectible.lastY = collectible.y;
+		collectible.update();
+		// Check if off-screen
+		if (collectible.y > 2732 || collectible.y < -100) {
+			collectible.destroy();
+			collectibles.splice(c, 1);
+			continue;
+		}
+		// Check collision with player
+		if (!collectible.collected && player.intersects(collectible)) {
+			collectible.collected = true;
+			var coinValue = collectible.value || 1;
+			levelCoinsCollected += coinValue;
+			storage.totalCoins += coinValue;
+			storage.totalScore += coinValue * 10;
+			LK.getSound('coinCollect').play();
+			var coinDisplay = game.findChildByName || null;
+			var guiChildren = LK.gui.top.children;
+			for (var i = 0; i < guiChildren.length; i++) {
+				if (guiChildren[i].name === 'coinDisplay') {
+					guiChildren[i].setText('Coins: ' + levelCoinsCollected);
+				}
+			}
+			collectible.destroy();
+			collectibles.splice(c, 1);
+			continue;
+		}
+	}
+	// Update obstacles
+	for (var o = obstacles.length - 1; o >= 0; o--) {
+		var obstacle = obstacles[o];
+		obstacle.lastY = obstacle.y;
+		obstacle.update();
+		// Check if off-screen
+		if (obstacle.y > 2732) {
+			obstacle.destroy();
+			obstacles.splice(o, 1);
+			continue;
+		}
+		// Check collision with player
+		if (player.intersects(obstacle)) {
+			gameActive = false;
+			LK.showGameOver();
+		}
+	}
+	// Check if player reached finish line
+	if (finishLine && !finishLine.lastWasIntersecting && player.intersects(finishLine)) {
+		finishLine.reached = true;
+		finishLine.lastWasIntersecting = true;
+		gameActive = false;
+		storage.levelsCompleted = Math.max(storage.levelsCompleted, currentLevelData.number);
+		if (currentLevelData.number < 25) {
+			storage.levelsCompleted = currentLevelData.number + 1;
+		}
+		LK.getSound('levelComplete').play();
+		showLevelCompleteScreen();
+	}
+	if (finishLine && player && !player.intersects(finishLine)) {
+		finishLine.lastWasIntersecting = false;
+	}
+	// Check if player fell off
+	if (player.y > 2732) {
+		gameActive = false;
+		LK.showGameOver();
+	}
+};
+// Touch/drag controls
+var dragNode = null;
+game.move = function (x, y, obj) {
+	if (player && gameState === 'gameplay') {
+		player.x = x;
+		player.y = y;
+	}
+};
+game.down = function (x, y, obj) {
+	if (gameState === 'gameplay' && player) {
+		dragNode = player;
+		player.x = x;
+		player.y = y;
+	}
+};
+game.up = function (x, y, obj) {
+	dragNode = null;
+};
